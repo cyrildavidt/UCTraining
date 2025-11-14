@@ -1,30 +1,35 @@
 package com.sib.apps.sparklex.uctraining
 
+import android.content.Intent
 import android.os.Bundle
 import android.text.TextUtils
 import android.widget.Toast
-import androidx.activity.ComponentActivity
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.ActivityResultLauncher
+import androidx.activity.result.component1
+import androidx.activity.result.component2
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.sib.apps.sparklex.uctraining.data.AppDatabase
-import com.sib.apps.sparklex.uctraining.databinding.ActivityMainBinding
+import com.sib.apps.sparklex.uctraining.data.StudentEntity
+import com.sib.apps.sparklex.uctraining.databinding.ActivityStudentManageBinding
 import com.sib.apps.sparklex.uctraining.dto.StudentDto
-import com.sib.apps.sparklex.uctraining.network.StudentApi
+import com.sib.apps.sparklex.uctraining.network.RetrofitClient
 import com.sib.apps.sparklex.uctraining.repository.StudentRepository
 import kotlinx.coroutines.launch
-import okhttp3.logging.HttpLoggingInterceptor
-import retrofit2.Retrofit
-import retrofit2.converter.gson.GsonConverterFactory
 
-class MainActivity : ComponentActivity() {
+class StudentManageActivity : AppCompatActivity() {
 
     private lateinit var repository: StudentRepository
-    private lateinit var binding: ActivityMainBinding
+    private lateinit var binding: ActivityStudentManageBinding
     private lateinit var adapter: StudentAdapter
+
+    private lateinit var editIntentLauncher: ActivityResultLauncher<Intent>
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -32,7 +37,7 @@ class MainActivity : ComponentActivity() {
         this.enableEdgeToEdge()
         WindowCompat.setDecorFitsSystemWindows(window, false)
 
-        binding = ActivityMainBinding.inflate(layoutInflater)
+        binding = ActivityStudentManageBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
         ViewCompat.setOnApplyWindowInsetsListener(binding.rootLinear) { view, insets ->
@@ -48,25 +53,13 @@ class MainActivity : ComponentActivity() {
 
         val db = AppDatabase.getDatabase(this)
 
-        val client = okhttp3.OkHttpClient.Builder()
-            .addInterceptor(HttpLoggingInterceptor().apply {
-                level = HttpLoggingInterceptor.Level.BODY
-            }
-            )
-            .build()
+        val api = RetrofitClient.api
 
-        val retrofit = Retrofit.Builder()
-            .baseUrl("http://172.21.22.64:8080/")
-            .addConverterFactory(GsonConverterFactory.create())
-            .client(client)
-            .build()
-
-        val api = retrofit.create(StudentApi::class.java)
         repository = StudentRepository(db.studentDao(), api)
 
         adapter = StudentAdapter(
             onDelete = { studentDto -> deleteStudent(studentDto.id) },
-            onEdit = { studentDto -> editStudent(studentDto) }
+            onEdit = { studentEntity -> editStudent(studentEntity) }
         )
         binding.rvStudents.layoutManager = LinearLayoutManager(this)
         binding.rvStudents.adapter = adapter
@@ -85,6 +78,14 @@ class MainActivity : ComponentActivity() {
 
         fetchStudents()
 
+        editIntentLauncher =
+            registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { (resultCode, data) ->
+                if (resultCode == RESULT_OK && data != null) {
+                    val success = data.getBooleanExtra("status", false)
+                    if (success) fetchStudents()
+                }
+            }
+
     }
 
     private fun fetchStudents() {
@@ -101,7 +102,7 @@ class MainActivity : ComponentActivity() {
             binding.editName.text.clear()
             binding.editAge.text.clear()
             binding.editDepartment.text.clear()
-            Toast.makeText(this@MainActivity, "Student Added", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this@StudentManageActivity, "Student Added", Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -109,28 +110,26 @@ class MainActivity : ComponentActivity() {
         lifecycleScope.launch {
             repository.deleteStudent(id)
             fetchStudents()
-            Toast.makeText(this@MainActivity, "Student deleted", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this@StudentManageActivity, "Student deleted", Toast.LENGTH_SHORT).show()
         }
     }
 
-    private fun editStudent(studentDto: StudentDto) {
-        lifecycleScope.launch {
-            repository.updateStudent(studentDto)
-            fetchStudents()
-            Toast.makeText(this@MainActivity, "Student updated", Toast.LENGTH_SHORT).show()
-        }
+    private fun editStudent(studentEntity: StudentEntity) {
+        val intent = Intent(this, StudentEditActivity::class.java)
+        intent.putExtra("student", studentEntity)
+        editIntentLauncher.launch(intent)
     }
 
     private fun checkForFieldValidation(): Boolean {
-        if (TextUtils.isEmpty(binding.editName.text)){
+        if (TextUtils.isEmpty(binding.editName.text)) {
             binding.editName.error = "Please enter name"
             return false
         }
-        if (TextUtils.isEmpty(binding.editAge.text)){
+        if (TextUtils.isEmpty(binding.editAge.text)) {
             binding.editAge.error = "Please enter age"
             return false
         }
-        if (TextUtils.isEmpty(binding.editDepartment.text)){
+        if (TextUtils.isEmpty(binding.editDepartment.text)) {
             binding.editDepartment.error = "Please enter department"
             return false
         }
